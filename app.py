@@ -7,21 +7,38 @@ from PIL import Image, ImageTk
 # Load YOLO model
 model = YOLO("yolov5s.pt")  # Replace with your YOLO model file
 
-# Define the target color range in HSV format
-TARGET_COLOR_LOWER = np.array([0, 100, 100])  # Lower HSV bounds for target color
-TARGET_COLOR_UPPER = np.array([10, 255, 255])  # Upper HSV bounds for target color
+# Color ranges in HSV format mapped to names
+COLOR_RANGES = {
+    "Red": [(0, 50, 50), (10, 255, 255)],
+    "Orange": [(11, 50, 50), (25, 255, 255)],
+    "Yellow": [(26, 50, 50), (35, 255, 255)],
+    "Green": [(36, 50, 50), (85, 255, 255)],
+    "Blue": [(86, 50, 50), (125, 255, 255)],
+    "Purple": [(126, 50, 50), (150, 255, 255)],
+    "Pink": [(151, 50, 50), (170, 255, 255)],
+    "Brown": [(10, 50, 50), (20, 150, 150)]
+}
+
+def get_color_name(hsv_value):
+    """
+    Map an HSV value to a color name based on predefined ranges.
+    """
+    for color_name, (lower, upper) in COLOR_RANGES.items():
+        lower = np.array(lower)
+        upper = np.array(upper)
+        if cv2.inRange(np.uint8([[hsv_value]]), lower, upper):
+            return color_name
+    return "Unknown"
 
 def get_dominant_color(image):
     """
     Get the dominant color of the image in HSV.
     """
     hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv_image, TARGET_COLOR_LOWER, TARGET_COLOR_UPPER)
-    masked_image = cv2.bitwise_and(image, image, mask=mask)
-
-    # Calculate the mean color in the masked area
-    hsv_mean = cv2.mean(hsv_image, mask)
-    return hsv_mean
+    hist = cv2.calcHist([hsv_image], [0, 1], None, [180, 256], [0, 180, 0, 256])
+    dominant_hue = np.argmax(hist) // 256
+    dominant_sat = np.argmax(hist) % 256
+    return np.array([dominant_hue, dominant_sat, 200])  # Fixed value for brightness
 
 def update_frame():
     global cap, canvas, photo, color_label
@@ -44,20 +61,21 @@ def update_frame():
                 # Crop the detected object
                 cropped_object = frame[y1:y2, x1:x2]
 
-                # Check if the dominant color matches the target color
-                dominant_color = get_dominant_color(cropped_object)
-                if TARGET_COLOR_LOWER[0] <= dominant_color[0] <= TARGET_COLOR_UPPER[0]:
-                    # Display the bounding box and label
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(frame, f"Detected: {class_id}", (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                # Check the dominant color
+                dominant_color_hsv = get_dominant_color(cropped_object)
+                color_name = get_color_name(dominant_color_hsv)
 
-                    # Add color to detected colors
-                    detected_colors.append(f"HSV: {dominant_color[:3]}")
+                # Display the bounding box and label
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, f"{color_name}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                # Add color name to detected colors
+                detected_colors.append(color_name)
 
     # Update the detected colors label
     if detected_colors:
-        color_label.config(text="Detected Colors:\n" + "\n".join(detected_colors))
+        color_label.config(text="Detected Colors:\n" + ", ".join(set(detected_colors)))
     else:
         color_label.config(text="Detected Colors:\nNone")
 
